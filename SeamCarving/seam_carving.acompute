@@ -1,0 +1,311 @@
+#kernel DownSize
+#kernel SobelFilter
+#kernel EnergyMap
+#kernel SeamsTrace
+#kernel SeamsRemove
+#kernel UpdateImage
+#kernel UpSize
+#kernel EnergyMaH
+#kernel SeamsTracH
+#kernel SeamsRemovH
+ 
+//Memoire partagee des cellules
+shared float grille[10][10];  
+
+layout(rgba16f, set = 0, binding = 0) uniform image2D _ImageBase;
+layout(rgba16f, set = 0, binding = 1) uniform image2D _Buffer;
+layout(rgba16f, set = 0, binding = 2) uniform image2D _SmallImage;
+layout(rgba16f, set = 0, binding = 3) uniform image2D _CarvedImage;
+
+ 
+layout(push_constant, std430) uniform Params {
+	vec2 raster_size;
+	vec2 small_size;
+	float nombre_iteration;
+	float current_row; 
+	float nombre_iteration_h;
+	float invertt;
+};
+
+ 
+float N21(ivec2 p) {
+	uint x = uint(p.x);
+	uint y = uint(p.y);
+	uint u = x * 73856093u;
+	u = (u ^ (y * 197273641u)) ^ (u >> 16);
+	u = u * 2654435769u;
+	u = u ^ (u >> 12);
+	u = u * 2654435769u;
+	u = u ^ (u >> 15);
+
+	return float(u) / 4294967295.0;
+}
+ivec2 LoopCoord(ivec2 coord) {
+	return ivec2(mod(coord,small_size));  
+}
+[numthreads(8, 8, 1)]
+void DownSize() { 
+	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
+	ivec2 big_uv = ivec2(vec2(uv)/small_size*raster_size);
+	vec4 col = imageLoad(_ImageBase,big_uv);
+	imageStore(_SmallImage,uv,col);
+	
+}
+
+
+[numthreads(8, 8, 1)]
+void SobelFilter() { 
+	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
+
+	int lx = int(gl_LocalInvocationID.x); 
+	int ly = int(gl_LocalInvocationID.y); 
+	int gx = uv.x; 
+	int gy = uv.y;
+	
+	vec2 nuv = vec2(uv)/vec(raster_size); 
+
+	//Chaque thread charge son pixel dans la memoire et les bordures de 1
+	
+	grille[ly + 1][lx + 1] = imageLoad(_SmallImage, LoopCoord(ivec2(gx, gy))).r;
+
+	// halo Gauche 
+	if (lx < 1)
+		grille[ly + 1][lx] = imageLoad(_SmallImage, LoopCoord(ivec2(gx - 1, gy))).r;
+
+	// halo Droit
+	if (lx >= 7)
+		grille[ly + 1][lx + 2] = imageLoad(_SmallImage, LoopCoord(ivec2(gx + 1, gy))).r;
+
+	// halo Bas
+	if (ly < 1)
+		grille[ly][lx + 1] = imageLoad(_SmallImage, LoopCoord(ivec2(gx, gy - 1))).r;
+ 
+	// halo Haut
+	if (ly >= 7)
+		grille[ly + 2][lx + 1] = imageLoad(_SmallImage, LoopCoord(ivec2(gx, gy + 1))).r;
+
+	// Coins
+	if (lx < 1 && ly < 1)
+		grille[ly][lx] = imageLoad(_SmallImage, LoopCoord(ivec2(gx - 1, gy - 1))).r;
+
+	if (lx >= 7 && ly < 1)
+		grille[ly][lx + 2] = imageLoad(_SmallImage, LoopCoord(ivec2(gx + 1, gy - 1))).r;
+
+	if (lx < 1 && ly >= 7)
+		grille[ly + 2][lx] = imageLoad(_SmallImage, LoopCoord(ivec2(gx - 1, gy + 1))).r;
+
+	if (lx >= 7 && ly >= 7)
+		grille[ly + 2][lx + 2] = imageLoad(_SmallImage, LoopCoord(ivec2(gx + 1, gy + 1))).r;
+	
+	barrier();
+	
+	float x =
+	grille[ly+2][lx] - grille[ly+2][lx+2]+
+	grille[ly+1][lx]*2. - 2*grille[ly+1][lx+2]+ 
+	grille[ly][lx] - grille[ly][lx+2];
+	
+	float y =
+	grille[ly+2][lx] + 2* grille[ly+2][lx+1]+grille[ly+2][lx+2] 
+	- grille[ly][lx]- 2*grille[ly][lx+1] - grille[ly][lx+2];
+	float sob =sqrt((x*x) + (y*y));
+	
+	sob = length(uv);
+	
+	if(invertt>1.){
+		sob = 1.-sob;
+	}
+	
+	imageStore(_Buffer, uv, vec4(sob));
+	 
+}
+
+
+[numthreads(8, 1, 1)]
+void EnergyMap() {
+	int x = int(gl_GlobalInvocationID.x);
+	int y = int(current_row);
+
+	float sobel = imageLoad(_Buffer, ivec2(x, y)).r;
+
+	float dir = 0.0;
+	float cumulative;
+
+	if (y == 0) {
+		cumulative = sobel;
+	} else {
+		float left   = x > 0                    ? imageLoad(_Buffer, ivec2(x-1, y-1)).r : 1e9;
+		float center =                             imageLoad(_Buffer, ivec2(x,   y-1)).r;
+		float right  = x < int(small_size.x)-1  ? imageLoad(_Buffer, ivec2(x+1, y-1)).r : 1e9;
+
+		if (left <= center && left <= right)        dir = -1.0;
+		else if (center <= right)                   dir =  0.0;
+		else                                        dir =  1.0;
+
+		cumulative = sobel + min(left, min(center, right));
+	}
+
+	imageStore(_Buffer,      ivec2(x, y), vec4(cumulative));
+	imageStore(_CarvedImage, ivec2(x, y), vec4(dir));
+}
+
+ 
+
+
+[numthreads(1, 1, 1)]
+void SeamsTrace() {
+	int u = int(gl_GlobalInvocationID.x);
+
+	int strip_width = int(small_size.x / nombre_iteration);
+	int strip_start = u * strip_width;
+	int strip_end   = strip_start + strip_width - 1;
+	int bottom_y    = int(small_size.y) - 1;
+
+   
+	float min_e = 1e30;
+	int min_x = strip_start + strip_width / 2;
+	for (int x = strip_start; x <= strip_end; x++) {
+		float e = imageLoad(_Buffer, ivec2(x, bottom_y)).r;
+		if (e < min_e) { min_e = e; min_x = x; }
+	}
+
+	// Trace upward from minimum
+	ivec2 P = ivec2(min_x, bottom_y);
+	for (int i = bottom_y; i >= 0; i--) {
+		imageStore(_ImageBase, ivec2(u, i), vec4(P.x));
+		if (i > 0) {
+			float dir = imageLoad(_CarvedImage, P).r;
+			P = ivec2(clamp(P.x + int(dir), strip_start, strip_end), i - 1);
+		}
+	}
+}
+
+[numthreads(8, 8, 1)]
+void SeamsRemove() { 
+	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
+	if (uv.x >= int(small_size.x) - int(nombre_iteration)) return;
+	int short_x = uv.x;
+
+	for(int u = 0; u<nombre_iteration; u++){
+		
+		int seam_x = int(imageLoad(_ImageBase,ivec2(u,uv.y)).r);
+		if(seam_x<=uv.x){
+			short_x++; 
+		}
+	}
+	vec4 col = imageLoad(_SmallImage,ivec2(short_x,uv.y));
+
+	imageStore(_CarvedImage,uv,col);
+	
+}
+
+
+[numthreads(8, 1, 1)]
+void EnergyMaH() {
+	int y = int(gl_GlobalInvocationID.x);
+	int x = int(current_row); 
+
+	float sobel = imageLoad(_Buffer, ivec2(x, y)).r;
+
+	float dir = 0.0;
+	float cumulative;
+
+	if (x == 0) {
+		cumulative = sobel;
+	} else {
+		float up     = y > 0                    ? imageLoad(_Buffer, ivec2(x-1, y-1)).r : 1e9;
+		float center =                            imageLoad(_Buffer, ivec2(x-1, y  )).r;
+		float down   = y < int(small_size.y)-1  ? imageLoad(_Buffer, ivec2(x-1, y+1)).r : 1e9;
+
+		if (up <= center && up <= down)        dir = -1.0;
+		else if (center <= down)               dir =  0.0;
+		else                                   dir =  1.0;
+
+		cumulative = sobel + min(up, min(center, down));
+	}
+
+	imageStore(_Buffer,      ivec2(x, y), vec4(cumulative));
+	imageStore(_CarvedImage, ivec2(x, y), vec4(dir));
+}
+
+[numthreads(1, 1, 1)]
+void SeamsTracH() {
+	int u = int(gl_GlobalInvocationID.x);
+
+	int strip_width = int(small_size.y / nombre_iteration_h);
+	int strip_start = u * strip_width;
+	int strip_end   = strip_start + strip_width - 1;
+	int bottom_x    = int(small_size.x) - 1;
+
+   
+	float min_e = 1e30;
+	int min_y = strip_start + strip_width / 2;
+	for (int y = strip_start; y <= strip_end; y++) {
+		float e = imageLoad(_Buffer, ivec2(bottom_x,y)).r;
+		if (e < min_e) { min_e = e; min_y = y; }
+	}
+
+	ivec2 P = ivec2(bottom_x, min_y);
+	for (int i = bottom_x; i >= 0; i--) {
+		imageStore(_ImageBase, ivec2(i,u), vec4(P.y));
+		if (i > 0) {
+			float dir = imageLoad(_CarvedImage, P).r;
+			P = ivec2(i-1,clamp(P.y + int(dir), strip_start, strip_end));
+		}
+	}
+}
+
+[numthreads(8, 8, 1)]
+void SeamsRemovH() { 
+	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
+	if (uv.y >= int(small_size.y) - int(nombre_iteration_h)) return;
+	int short_y = uv.y;
+
+	for(int u = 0; u<nombre_iteration_h; u++){
+		
+		int seam_y = int(imageLoad(_ImageBase,ivec2(uv.x,u)).r);
+		if(seam_y<=uv.y){
+			short_y++; 
+		}
+	}
+	vec4 col = imageLoad(_SmallImage,ivec2(uv.x,short_y));
+
+	imageStore(_CarvedImage,uv,col);
+	 
+}
+
+[numthreads(8, 8, 1)]
+void UpdateImage() { 
+	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
+	vec4 col =imageLoad(_CarvedImage,uv);
+	imageStore(_SmallImage,uv,col);
+}
+
+
+
+[numthreads(8, 8, 1)] 
+void UpSize() { 
+	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
+	
+	// Redimensionner sur y
+	float scale = raster_size.y / small_size.y;
+	
+	// Centrer en y
+	float scaled_height = small_size.x * scale;
+	float x_offset = (raster_size.x - scaled_height) * 0.5;
+	
+	float src_x = (float(uv.x) - x_offset) / scale;
+	float src_y = float(uv.y) / scale;
+
+	//barres noires
+	if (src_x < 0.0 || src_x >= small_size.x) {
+		imageStore(_ImageBase, uv, vec4(0., 0., 0., 1.));
+		return; 
+	}
+	
+	ivec2 smol_uv = ivec2(int(src_x), int(src_y));
+	//smol_uv = ivec2(uv/raster_size*small_size);
+	vec4 col = imageLoad(_SmallImage, smol_uv);
+	
+	
+	imageStore(_ImageBase, uv, col);
+}

@@ -1,0 +1,411 @@
+#kernel SimulationSetup
+#kernel SimulationStep
+
+layout(set = 0, binding = 0, std430) restrict buffer _MultimeshBuffer {
+	float values[];
+};
+
+layout(push_constant, std430) uniform Params {
+	float _delta;
+	float _TailleFluide;
+	float _NombreParticules;
+	float _TIME; 
+	 
+};
+
+layout(binding = 1) uniform UniformBufferObject {
+	vec4 _Debug;
+	mat4 INV_PROJECTION_MATRIX;
+	vec4 CAMERA_POSITION_WORLD;
+	mat4 INV_VIEW_MATRIX; 
+};
+
+
+uint uhash(uint x) {
+	x ^= x >> 16u;
+	x *= 0x45d9f3bu;
+	x ^= x >> 16u;
+	x *= 0x45d9f3bu;
+	x ^= x >> 16u;
+	return x;
+}
+
+
+float hashF(uint seed) {
+	return float(uhash(seed)) / 4294967296.0;
+}
+
+vec3 N13(uint seed) {
+	return vec3(
+		hashF(uhash(seed)),
+		hashF(uhash(seed + 1111u)),
+		hashF(uhash(seed + 2222u))
+	);
+}
+
+vec4 N14(uint seed) {
+	return vec4(
+		hashF(uhash(seed)),
+		hashF(uhash(seed + 1111u)),
+		hashF(uhash(seed + 2222u)),
+		hashF(uhash(seed + 3333u))
+	);
+}
+
+vec2 N12(float p) {
+	vec3 q = fract(vec3(p * 123.34, p * 456.78, p * 789.12));
+	q += dot(q, q.yzx + 34.56);
+	return fract(vec2(
+		(q.x + q.y) * q.z,
+		(q.y + q.z) * q.x
+	));
+}
+
+vec3 N13(float p) {
+	vec3 q = vec3(p * 123.34, p * 456.78, p * 789.12);
+	q = fract(q);
+	q += dot(q, q.yzx + 34.56);
+	return fract(vec3(
+		(q.x + q.y) * q.z,
+		(q.y + q.z) * q.x,
+		(q.z + q.x) * q.y
+	));
+}
+
+vec4 N14(float p) {
+	vec4 q = vec4(p * 123.34, p * 456.78, p * 789.12, p * 101.34);
+	q = fract(q);
+	q += dot(q, q.yzxw + 34.56);
+	return fract(vec4(
+		(q.x + q.y) * q.z,
+		(q.y + q.z) * q.x,
+		(q.z + q.x) * q.y,
+		(q.w + q.x) * q.z
+	));
+}
+
+vec3 N33(vec3 p) {
+	vec4 a = fract(p.xyzx * vec4(123.34, 232.45, 35.65, 154.78));
+	a += dot(a, a + 34.34);
+	return fract(vec3(a.x*a.y - 0.7, a.y*a.z + 0.1, a.z*a.w - 0.4));
+}
+
+vec3 rotateAxisAngle(vec3 v, vec3 axis, float angle)
+{
+	axis = normalize(axis);
+	float c = cos(angle);
+	float s = sin(angle);
+
+	return v * c
+		 + cross(axis, v) * s
+		 + axis * dot(axis, v) * (1.0 - c);
+}
+
+vec3 grad( ivec3 z ){
+	int n = z.x + z.y*11111 + z.z*333667;
+
+
+	n = (n<<13)^n;
+	n = (n*(n*n*15731+789221)+1376312589)>>16;
+
+	
+	n &= 11; 
+	if (n > 11) n -= 12;
+
+	const vec3 grads[12] = vec3[12](
+		vec3( 1.0,  1.0,  0.0),
+		vec3(-1.0,  1.0,  0.0),
+		vec3( 1.0, -1.0,  0.0),
+		vec3(-1.0, -1.0,  0.0),
+		vec3( 1.0,  0.0,  1.0),
+		vec3(-1.0,  0.0,  1.0),
+		vec3( 1.0,  0.0, -1.0),
+		vec3(-1.0,  0.0, -1.0),
+		vec3( 0.0,  1.0,  1.0),
+		vec3( 0.0, -1.0,  1.0),
+		vec3( 0.0,  1.0, -1.0),
+		vec3( 0.0, -1.0, -1.0)
+	);
+	return grads[n];
+}
+vec2 grad(ivec2 p) {
+	// Hash the integer coords to a unit-ish gradient direction
+	int n = p.x + p.y * 57;
+	n = (n << 13) ^ n;
+	n = n * (n * n * 15731 + 789221) + 1376312589;
+	float angle = float(n & 0x7fffffff) / 1073741824.0 * 3.14159265;
+	return vec2(cos(angle), sin(angle));
+}
+
+float Voronoi(vec3 p){
+		
+	vec3 gv = fract(p)-.5;
+	vec3 id = floor(p);
+	float minDist=1000.;
+
+	
+	for (float z = -1.; z <= 1.; z++){
+		for(float y =-1.; y<=1.;y++){
+			for(float x = -1.; x<=1.;x++){
+				vec3 offs = vec3(x,y,z);
+				vec3 n = N33(offs+id);
+				vec3 pos = offs+n+id;
+				float d = length(p-pos);
+			   
+				if(d<minDist){
+				minDist = d;
+				}
+			}
+		}
+	}
+	
+	
+	return minDist;
+}
+vec2 Tourner(vec2 uv, float a){
+
+	return vec2(uv.x*cos(a)-uv.y*sin(a),uv.x*sin(a)+ uv.y*cos(a));}
+
+float DonutDistance(vec2 p1, vec2 p2){
+	
+	vec2 dis = abs(p1-p2);
+	
+	return length(min(dis,1.-dis));
+} 
+
+vec4 PerlinNoiseGradient(vec3 pos,float scale){
+	
+	ivec3 flpos = ivec3(floor(pos*scale));
+	vec3 frpos = fract(pos*scale);
+	vec3 s = frpos*frpos*(3.-2.0*frpos);
+	
+	vec3 g000 =grad(flpos);
+	vec3 g010 =grad(flpos+ivec3(0,1,0));
+	vec3 g110 =grad(flpos+ivec3(1,1,0));
+	vec3 g100 =grad(flpos+ivec3(1,0,0));
+	vec3 g001 =grad(flpos+ivec3(0,0,1));
+	vec3 g011 =grad(flpos+ivec3(0,1,1));
+	vec3 g111 =grad(flpos+ivec3(1,1,1));
+	vec3 g101 =grad(flpos+ivec3(1,0,1));
+	
+	
+	float c000 = dot(g000,frpos);;
+	float c010 = dot(g010,frpos-vec3(0.,1.,0.));
+	float c110 = dot(g110,frpos-vec3(1.,1.,0.));
+	float c100 = dot(g100,frpos-vec3(1.,0.,0.));
+   
+	
+	float c001 = dot(g001,frpos-vec3(0.,0.,1.));;
+	float c011 = dot(g011,frpos-vec3(0.,1.,1.));
+	float c111 = dot(g111,frpos-vec3(1.,1.,1.));
+	float c101 = dot(g101,frpos-vec3(1.,0.,1.));
+	
+	
+	
+	float c0y0 = mix(c000,c010,s.y);
+	float c1y0 = mix(c100,c110,s.y);
+	
+	float c0y1 = mix(c001,c011,s.y);
+	float c1y1 = mix(c101,c111,s.y);
+	
+	
+	float cxy0 = mix(c0y0,c1y0,s.x);
+	float cxy1 = mix(c0y1,c1y1,s.x);
+	
+	float perlin = mix(cxy0,cxy1,s.z);
+	
+	
+	vec3 w000 = (1.-s.x)*(1.-s.y)*(1.-s.z)*g000;
+	vec3 w010 = (1.-s.x)*s.y*(1.-s.z)*g010;
+	vec3 w110 = s.x*s.y*(1.-s.z)*g110;
+	vec3 w100 = s.x*(1.-s.y)*(1.-s.z)*g100;
+	vec3 w001 = (1.-s.x)*(1.-s.y)*s.z*g001;
+	vec3 w011 = (1.-s.x)*s.y*s.z*g011;
+	vec3 w111 = s.x*s.y*s.z*g111;
+	vec3 w101 = s.x*(1.-s.y)*s.z*g101;
+	
+	vec3 smoothstepDerivative = 6.*frpos-6.*frpos*frpos;
+	
+	float ddx = (mix(c1y0,c1y1,s.z)-mix(c0y0,c0y1,s.z));
+	
+	float ddy = mix(mix( c010 ,c110,s.x),mix(c011,c111,s.x),s.z)-mix(mix(c000,c100,s.x),mix(c001,c101,s.x),s.z);
+	
+	float ddz = cxy1-cxy0;
+	
+	vec3 d = smoothstepDerivative*vec3(ddx,ddy,ddz)+w000+w001+w010+w011+w100+w101+w110+w111;
+	
+	return vec4((perlin+1.)/2.,d);
+}
+
+vec3 PerlinNoiseGradient(vec2 pos, float scale) {
+	
+	ivec2 flpos = ivec2(floor(pos * scale));
+	vec2 frpos = fract(pos * scale);
+	vec2 s = frpos * frpos * (3. - 2.0 * frpos);
+
+	vec2 g00 = grad(flpos);
+	vec2 g10 = grad(flpos + ivec2(1, 0));
+	vec2 g01 = grad(flpos + ivec2(0, 1));
+	vec2 g11 = grad(flpos + ivec2(1, 1));
+
+	float c00 = dot(g00, frpos);
+	float c10 = dot(g10, frpos - vec2(1., 0.));
+	float c01 = dot(g01, frpos - vec2(0., 1.));
+	float c11 = dot(g11, frpos - vec2(1., 1.));
+
+	float cx0 = mix(c00, c10, s.x);
+	float cx1 = mix(c01, c11, s.x);
+
+	float perlin = mix(cx0, cx1, s.y);
+
+	vec2 w00 = (1. - s.x) * (1. - s.y) * g00;
+	vec2 w10 =        s.x  * (1. - s.y) * g10;
+	vec2 w01 = (1. - s.x) *        s.y  * g01;
+	vec2 w11 =        s.x  *        s.y  * g11;
+
+	
+	vec2 smoothstepDerivative = 6. * frpos - 6. * frpos * frpos;
+
+	float ddx = mix(c10, c11, s.y) - mix(c00, c01, s.y);
+	float ddy = cx1 - cx0;
+
+	vec2 d = smoothstepDerivative * vec2(ddx, ddy) + w00 + w10 + w01 + w11;
+
+	return vec3((perlin + 1.) / 2., d);
+} 
+mat3 randomRotation(float seed) {
+	vec2 r1 = normalize(vec2(
+		fract(seed * 127.1 + 311.7) * 2.0 - 1.0,
+		fract(seed * 269.5 + 183.3) * 2.0 - 1.0
+	));
+	vec2 r2 = normalize(vec2(
+		fract(seed * 419.2 + 933.1) * 2.0 - 1.0,
+		fract(seed * 371.9 + 246.1) * 2.0 - 1.0
+	));
+
+	mat3 m1 = mat3(
+		vec3( r1.x, r1.y, 0.0),
+		vec3(-r1.y, r1.x, 0.0),
+		vec3(  0.0,  0.0, 1.0)
+	);
+	mat3 m2 = mat3(
+		vec3( r2.x, 0.0, r2.y),
+		vec3(  0.0, 1.0,  0.0),
+		vec3(-r2.y, 0.0, r2.x)
+	);
+
+	return m2 * m1;
+}
+
+
+vec3 CurlNoise(vec3 p){
+	
+	vec3 dir = PerlinNoiseGradient(p,1.).yzw;
+	vec3 dir2 = PerlinNoiseGradient(p+vec3(7.97,8.88,-1.),0.59).yzw;
+	return cross(dir,dir2);	
+	
+}  
+
+vec3 fbm( vec3 p){    
+	//Modifiables
+	float H = 1.;
+	float fac= 2.;
+	
+	float G = exp2(-H);
+	float f = 1.0;
+	float a = 1.0;
+	vec3 t = vec3(0.0);
+	for( int i=0; i<5; i++ )
+	{
+		p*=randomRotation(float(i));
+		t += a*CurlNoise(p*f);
+		f *= fac;
+		a *= G;
+	}
+	return t;
+}
+
+
+ 
+[numthreads(256, 1, 1)]
+void SimulationStep() { 
+	uint id = gl_GlobalInvocationID.x;
+	
+	if(id >=uint(_NombreParticules)) return; 
+	uint offset = id*20u;
+	vec3 x = vec3(1.,0.,0.);
+	vec3 y = vec3(0.,1.,0.); 
+	vec3 z = vec3(0.,0.,1.);
+	
+	vec4 seed = N13(id).xyzz;
+	
+	vec3 prevpos =vec3(values[offset + 3],values[offset+7],values[offset+11]);
+	
+	float attenuationProfondeur = min(1.,exp(prevpos.y+10.)); 
+	
+	vec4 courant = PerlinNoiseGradient(prevpos+vec3(_TIME,0.,0.)*attenuationProfondeur,2.);
+	
+	vec3 curl =CurlNoise(prevpos)+ 0.001*courant.yzw;
+	
+	vec3 pos = prevpos +curl*0.001*_Debug.y;
+	vec4 color = vec4(curl.xyz,length(curl)/20.);  
+	
+	float cam_dis = distance(pos,CAMERA_POSITION_WORLD.xyz);
+	
+	//float voronoi = Voronoi(pos*0.0001);
+	
+	vec3 vel = normalize(pos-prevpos);
+	
+	y=vel;
+	z = normalize(CAMERA_POSITION_WORLD.xyz-pos);
+	
+	
+	x= cross(y,z);
+	
+	y= rotateAxisAngle(y,z,_TIME*_Debug.x);
+	x= rotateAxisAngle(x,z,_TIME*_Debug.x);
+	 
+	vec3 underCam = vec3(CAMERA_POSITION_WORLD.x, CAMERA_POSITION_WORLD.y, CAMERA_POSITION_WORLD.z);
+	
+	vec3 offsetCam = pos - underCam; 
+	
+	pos = underCam + (offsetCam - round(offsetCam / 10.) * 10.);
+	 
+	values[offset + 0] = x.x; values[offset + 1] = y.x; values[offset + 2] = z.x; values[offset + 3] = pos.x;
+	values[offset + 4] = x.y; values[offset + 5] = y.y; values[offset + 6] = z.y; values[offset + 7] = pos.y;
+	values[offset + 8] = x.z; values[offset + 9] = y.z; values[offset + 10] = z.z; values[offset +11] = pos.z;
+	 
+	values[offset + 12] = seed.x; values[offset + 13] = seed.y; values[offset + 14] = seed.z; values[offset + 15] = seed.w;
+	values[offset + 19] = cam_dis;
+	
+}
+
+[numthreads(256, 1, 1)]
+void SimulationSetup() { 
+	uint id = gl_GlobalInvocationID.x;
+	
+	if(id >=uint(_NombreParticules)) return; 
+	
+	uint offset = id*20u;
+	vec3 x = vec3(1.,0.,0.);
+	vec3 y = vec3(0.,1.,0.); 
+	vec3 z = vec3(0.,0.,1.);
+	
+	
+	vec3 pos = N13(id+7u);
+	values[offset + 16] = pos.x; values[offset + 17] = pos.y; values[offset + 18] = pos.z; values[offset + 19] = pos.x;
+	pos = pos*-10.-vec3(0.,10.,0.);
+	vec4 color = N14(id+54u); 
+	vec4 custom = N14(id+2); 
+	
+	
+ 
+	  
+	
+	values[offset + 0] = x.x; values[offset + 1] = y.x; values[offset + 2] = z.x; values[offset + 3] = pos.x;
+	values[offset + 4] = x.y; values[offset + 5] = y.y; values[offset + 6] = z.y; values[offset + 7] = pos.y;
+	values[offset + 8] = x.z; values[offset + 9] = y.z; values[offset + 10] = z.z; values[offset +11] = pos.z;
+	 
+	values[offset + 12] = color.x; values[offset + 13] = color.y; values[offset + 14] = color.z; values[offset + 15] = color.w;
+
+}

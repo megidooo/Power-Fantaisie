@@ -1,0 +1,19 @@
+[remap]
+
+importer="mp3"
+type="AudioStreamMP3"
+uid="uid://cijnul3y1r4yo"
+path="res://.godot/imported/20260404_RevisionWildDemo_Bouillie.002 2026-04-04 2221.mp3-64c3cdda908b8cb0397aa143660138f4.mp3str"
+
+[deps]
+
+source_file="res://Musique/20260404_RevisionWildDemo_Bouillie.002 2026-04-04 2221.mp3"
+dest_files=["res://.godot/imported/20260404_RevisionWildDemo_Bouillie.002 2026-04-04 2221.mp3-64c3cdda908b8cb0397aa143660138f4.mp3str"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4
