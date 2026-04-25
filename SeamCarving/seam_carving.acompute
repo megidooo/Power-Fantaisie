@@ -10,7 +10,7 @@
 #kernel SeamsRemovH
  
 //Memoire partagee des cellules
-shared float grille[10][10];  
+shared float grille[10][10];   
 
 layout(rgba16f, set = 0, binding = 0) uniform image2D _ImageBase;
 layout(rgba16f, set = 0, binding = 1) uniform image2D _Buffer;
@@ -54,15 +54,14 @@ void DownSize() {
 
 
 [numthreads(8, 8, 1)]
-void SobelFilter() { 
+void SobelFilter() {
 	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
-
 	int lx = int(gl_LocalInvocationID.x); 
 	int ly = int(gl_LocalInvocationID.y); 
 	int gx = uv.x; 
 	int gy = uv.y;
 	
-	vec2 nuv = vec2(uv)/vec(raster_size); 
+	vec2 nuv = vec2(uv)/vec2(raster_size);  
 
 	//Chaque thread charge son pixel dans la memoire et les bordures de 1
 	
@@ -109,7 +108,7 @@ void SobelFilter() {
 	- grille[ly][lx]- 2*grille[ly][lx+1] - grille[ly][lx+2];
 	float sob =sqrt((x*x) + (y*y));
 	
-	sob = length(uv);
+	//sob = length(uv);
 	
 	if(invertt>1.){
 		sob = 1.-sob;
@@ -305,7 +304,7 @@ void UpSize() {
 	ivec2 smol_uv = ivec2(int(src_x), int(src_y));
 	//smol_uv = ivec2(uv/raster_size*small_size);
 	vec4 col = imageLoad(_SmallImage, smol_uv);
-	
+	//col = vec4(1.-step(col.x,0.1));
 	
 	imageStore(_ImageBase, uv, col);
 }

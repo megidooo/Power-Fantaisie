@@ -3,7 +3,6 @@ extends CompositorEffect
 class_name Crounche
 
 @export_group("Shader Settings")
-@export var exposure = Vector4(2, 1, 1, 1)
 @export var width = 200;
 var finalRes := Vector2i(200,200);
 @export var coupes := 1;

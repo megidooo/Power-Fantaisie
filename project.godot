@@ -8,11 +8,15 @@
 
 config_version=5
 
+[animation]
+
+compatibility/default_parent_skeleton_in_mesh_instance_3d=true
+
 [application]
 
 config/name="Crounche"
 run/main_scene="uid://bcttmn3j0s8sw"
-config/features=PackedStringArray("4.5", "Forward Plus")
+config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
 
 [autoload]
@@ -21,8 +25,8 @@ AcerolaShaderCompiler="*res://Acerola-Compute-main/acerola_shader_compiler.gd"
 
 [editor]
 
-movie_writer/movie_file="C:/Users/colom/Desktop/Joseph/Revision/Rendu/Rendus/bouillie.avi"
-movie_writer/fps=24
+movie_writer/movie_file="C:/Users/javel_fraise/Desktop/JAVEL_FRAISE/OSEF/DA/frames/bouillie.png"
+movie_writer/fps=1
 
 [input]
 

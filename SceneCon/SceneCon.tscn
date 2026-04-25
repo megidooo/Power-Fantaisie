@@ -1,4 +1,4 @@
-[gd_scene load_steps=17 format=3 uid="uid://bcttmn3j0s8sw"]
+[gd_scene format=3 uid="uid://bcttmn3j0s8sw"]
 
 [ext_resource type="Script" uid="uid://cwe7gbvpe8qy1" path="res://SeamCarving/seam_carving.gd" id="1_btdvd"]
 [ext_resource type="ArrayMesh" uid="uid://cyksbxliow8s" path="res://AssetCon/damonche.obj" id="1_etdu3"]
@@ -9,6 +9,7 @@
 [ext_resource type="Script" uid="uid://bqhdcy0dyqb0c" path="res://Player/character.gd" id="5_nikvy"]
 [ext_resource type="Script" uid="uid://hmuthlrmdl5w" path="res://SeamCarving/Bidouille.gd" id="8_yrvva"]
 [ext_resource type="AudioStream" uid="uid://cijnul3y1r4yo" path="res://Musique/20260404_RevisionWildDemo_Bouillie.002 2026-04-04 2221.mp3" id="9_yrvva"]
+[ext_resource type="Texture2D" uid="uid://cwd1gstsor7s5" path="res://Assets/text.png" id="10_yct86"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_13fyv"]
 shading_mode = 0
@@ -16,8 +17,9 @@ albedo_texture = ExtResource("2_btdvd")
 
 [sub_resource type="Environment" id="Environment_4hhrm"]
 background_mode = 1
+background_color = Color(1, 1, 1, 1)
 
-[sub_resource type="CompositorEffect" id="CompositorEffect_13fyv"]
+[sub_resource type="CompositorEffect" id="CompositorEffect_yrvva"]
 resource_local_to_scene = false
 resource_name = ""
 enabled = true
@@ -25,13 +27,12 @@ effect_callback_type = 4
 needs_motion_vectors = false
 needs_normal_roughness = false
 script = ExtResource("1_btdvd")
-exposure = Vector4(0, 1, 1, 1)
 width = 300
-iterations_verticales = 100
+iterations_verticales = 150
 metadata/_custom_type_script = "uid://cwe7gbvpe8qy1"
 
 [sub_resource type="Compositor" id="Compositor_4hhrm"]
-compositor_effects = Array[CompositorEffect]([SubResource("CompositorEffect_13fyv")])
+compositor_effects = Array[CompositorEffect]([SubResource("CompositorEffect_yrvva")])
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_4hhrm"]
 render_priority = 0
@@ -52,9 +53,16 @@ material = SubResource("ShaderMaterial_4hhrm")
 transform_format = 1
 mesh = SubResource("QuadMesh_wnfja")
 
-[node name="Node3D" type="Node3D"]
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_nw2h0"]
+shading_mode = 0
+albedo_texture = ExtResource("10_yct86")
 
-[node name="Damonche2" type="MeshInstance3D" parent="." node_paths=PackedStringArray("world_env", "particules", "character")]
+[sub_resource type="PlaneMesh" id="PlaneMesh_8ncmo"]
+material = SubResource("StandardMaterial3D_nw2h0")
+
+[node name="Node3D" type="Node3D" unique_id=1996705345]
+
+[node name="Damonche2" type="MeshInstance3D" parent="." unique_id=551229639 node_paths=PackedStringArray("world_env", "particules", "character")]
 transform = Transform3D(3.1821377, 0, 0, 0, 3.1734176, 0, 0, 0, 1, 1.8112202, 2.3809943, 5.3524227)
 visible = false
 mesh = ExtResource("1_etdu3")
@@ -65,20 +73,22 @@ world_env = NodePath("../WorldEnvironment")
 particules = NodePath("../MultiMeshInstance3D")
 character = NodePath("../Player")
 
-[node name="Player" type="Node3D" parent="."]
+[node name="Player" type="Node3D" parent="." unique_id=1932097499]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1835712, 0)
 script = ExtResource("5_nikvy")
 pos_accel = 0.1
 pos_decel = 0.5
 sens = 0.1
 pspeed = 0.05
 
-[node name="Camera3D" type="Camera3D" parent="Player"]
+[node name="Camera3D" type="Camera3D" parent="Player" unique_id=1665310248]
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 0, 0)
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1522386664]
 environment = SubResource("Environment_4hhrm")
 compositor = SubResource("Compositor_4hhrm")
 
-[node name="MultiMeshInstance3D" type="MultiMeshInstance3D" parent="."]
+[node name="MultiMeshInstance3D" type="MultiMeshInstance3D" parent="." unique_id=1288773524]
 extra_cull_margin = 16384.0
 multimesh = SubResource("MultiMesh_4hhrm")
 script = ExtResource("3_btdvd")
@@ -86,6 +96,11 @@ nombreParticule = 100000
 vitesseInitialeParticule = 0.965
 parametres = Vector4(0, 1, 1, 1)
 
-[node name="LoopPlayer" type="AudioStreamPlayer" parent="."]
+[node name="LoopPlayer" type="AudioStreamPlayer" parent="." unique_id=1891815519]
 stream = ExtResource("9_yrvva")
 autoplay = true
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=908752553]
+transform = Transform3D(2.5013773, 0, 0, 0, 2.5013773, 0, 0, 0, 2.5013773, 0, 0, 0)
+visible = false
+mesh = SubResource("PlaneMesh_8ncmo")
