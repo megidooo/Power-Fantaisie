@@ -1,0 +1,104 @@
+[gd_scene load_steps=20 format=3 uid="uid://bcttmn3j0s8sw"]
+
+[ext_resource type="ArrayMesh" uid="uid://cyksbxliow8s" path="res://AssetCon/damonche.obj" id="1_e2028"]
+[ext_resource type="Texture2D" uid="uid://b11gcd27cjdtq" path="res://AssetCon/Capture d'écran 2023-03-13 095755.png" id="2_qjuyx"]
+[ext_resource type="Script" uid="uid://hmuthlrmdl5w" path="res://CompositorEffects/SeamCarving/Bidouille.gd" id="3_tff3c"]
+[ext_resource type="Script" uid="uid://bqhdcy0dyqb0c" path="res://Player/character.gd" id="4_7i88n"]
+[ext_resource type="Script" uid="uid://cv4yw251oxpyr" path="res://CompositorEffects/CompositorRayMarcher/RayMarcher.gd" id="5_e2028"]
+[ext_resource type="Shader" uid="uid://bhei3l054r5hc" path="res://AssetCon/particulescon.gdshader" id="6_37fps"]
+[ext_resource type="Texture2D" uid="uid://dkgr3qp8nxx2b" path="res://AssetCon/pics2.png" id="7_xqvr7"]
+[ext_resource type="Script" uid="uid://d2k5tlylre1ss" path="res://Particles/ParticulesManager.gd" id="8_icvxn"]
+[ext_resource type="AudioStream" uid="uid://cijnul3y1r4yo" path="res://AssetCon/Musique/20260404_RevisionWildDemo_Bouillie.002 2026-04-04 2221.mp3" id="9_jt4sq"]
+[ext_resource type="Texture2D" uid="uid://cwd1gstsor7s5" path="res://AssetCon/text.png" id="10_yuddb"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_13fyv"]
+shading_mode = 0
+albedo_texture = ExtResource("2_qjuyx")
+
+[sub_resource type="Environment" id="Environment_4hhrm"]
+background_mode = 1
+background_color = Color(1, 1, 1, 1)
+
+[sub_resource type="CompositorEffect" id="CompositorEffect_qjuyx"]
+resource_local_to_scene = false
+resource_name = ""
+enabled = true
+effect_callback_type = 4
+needs_motion_vectors = false
+needs_normal_roughness = false
+script = ExtResource("5_e2028")
+parametres = Vector4(0.775, 28.075, 1, 0.995)
+metadata/_custom_type_script = "uid://cv4yw251oxpyr"
+
+[sub_resource type="Compositor" id="Compositor_4hhrm"]
+compositor_effects = Array[CompositorEffect]([SubResource("CompositorEffect_qjuyx")])
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_4hhrm"]
+render_priority = 0
+shader = ExtResource("6_37fps")
+shader_parameter/presence = Vector2(0.05, 3)
+shader_parameter/photo = ExtResource("7_xqvr7")
+shader_parameter/scale = 0.15
+shader_parameter/nombre = 3
+shader_parameter/alpha = true
+shader_parameter/_Couleur = Color(1, 1, 1, 1)
+shader_parameter/view_sphere = Vector2(0.125, 1.45)
+shader_parameter/_AjustementTaille = 1.75
+
+[sub_resource type="QuadMesh" id="QuadMesh_wnfja"]
+material = SubResource("ShaderMaterial_4hhrm")
+
+[sub_resource type="MultiMesh" id="MultiMesh_4hhrm"]
+transform_format = 1
+mesh = SubResource("QuadMesh_wnfja")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_nw2h0"]
+shading_mode = 0
+albedo_texture = ExtResource("10_yuddb")
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_8ncmo"]
+material = SubResource("StandardMaterial3D_nw2h0")
+
+[node name="Node3D" type="Node3D"]
+
+[node name="Damonche2" type="MeshInstance3D" parent="." node_paths=PackedStringArray("world_env", "particules", "character")]
+transform = Transform3D(3.1821377, 0, 0, 0, 3.1734176, 0, 0, 0, 1, 1.8112202, 2.3809943, 5.3524227)
+mesh = ExtResource("1_e2028")
+skeleton = NodePath("")
+surface_material_override/0 = SubResource("StandardMaterial3D_13fyv")
+script = ExtResource("3_tff3c")
+world_env = NodePath("../WorldEnvironment")
+particules = NodePath("../MultiMeshInstance3D")
+character = NodePath("../Player")
+
+[node name="Player" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1835712, 0)
+script = ExtResource("4_7i88n")
+pos_accel = 0.1
+pos_decel = 0.5
+sens = 0.1
+pspeed = 0.05
+
+[node name="Camera3D" type="Camera3D" parent="Player"]
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 0, 0)
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_4hhrm")
+compositor = SubResource("Compositor_4hhrm")
+
+[node name="MultiMeshInstance3D" type="MultiMeshInstance3D" parent="."]
+extra_cull_margin = 16384.0
+multimesh = SubResource("MultiMesh_4hhrm")
+script = ExtResource("8_icvxn")
+nombreParticule = 100000
+vitesseInitialeParticule = 0.965
+parametres = Vector4(0, 1, 1, 1)
+
+[node name="LoopPlayer" type="AudioStreamPlayer" parent="."]
+stream = ExtResource("9_jt4sq")
+autoplay = true
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+transform = Transform3D(2.5013773, 0, 0, 0, 2.5013773, 0, 0, 0, 2.5013773, 0, 0, 0)
+visible = false
+mesh = SubResource("PlaneMesh_8ncmo")

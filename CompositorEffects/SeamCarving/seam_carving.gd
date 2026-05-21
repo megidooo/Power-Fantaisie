@@ -33,7 +33,9 @@ func _notification(what):
 	if what == NOTIFICATION_PREDELETE:
 		# ACompute will handle the freeing of any resources attached to it
 		seam_carving_compute.free()
-
+		rd.free_rid(buffer_rid)
+		rd.free_rid(small_rid) 
+		rd.free_rid(carved_rid)
 func _create_tex(size,rid):
 	
 	var fmt = RDTextureFormat.new()

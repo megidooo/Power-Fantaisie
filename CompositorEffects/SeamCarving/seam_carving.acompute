@@ -108,7 +108,7 @@ void SobelFilter() {
 	- grille[ly][lx]- 2*grille[ly][lx+1] - grille[ly][lx+2];
 	float sob =sqrt((x*x) + (y*y));
 	
-	//sob = length(uv);
+	
 	
 	if(invertt>1.){
 		sob = 1.-sob;
