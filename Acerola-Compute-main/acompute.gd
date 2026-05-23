@@ -38,6 +38,7 @@ func set_texture(binding: int, texture: RID) -> void:
 	cache_uniform(u)
 
 
+
 func set_uniform_buffer(binding: int, uniform_array: PackedByteArray) -> void:
 	# Check if buffer exists already in this binding
 	if uniform_buffer_cache.has(binding):

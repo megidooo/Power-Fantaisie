@@ -53,10 +53,6 @@ func _input(event: InputEvent) -> void:
 	elif event.is_action_pressed("slower_rot"):
 		particules.parametres.x = clampf(particules.parametres.x - 0.1,0.,3.)
 	
-	if event.is_action_pressed("faster_flow"):
-		particules.parametres.y = clampf(particules.parametres.y+0.5,0.1,10.)
-	elif event.is_action_pressed("slower_flow"):
-		particules.parametres.y = clampf(particules.parametres.y-0.5,0.1,10.)
 	
 	
 	if event.is_action_pressed("faster_player"):

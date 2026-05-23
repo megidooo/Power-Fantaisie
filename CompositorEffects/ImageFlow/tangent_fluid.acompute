@@ -1,16 +1,17 @@
 #kernel SobelFilter
 #kernel SimulationStep
+#kernel InitializeColor
+#kernel CopyToMain
 
- 
 //Memoire partagee des cellules
 shared float grille[10][10];   
 
 layout(rgba16f, set = 0, binding = 0) uniform image2D _ImageBase;
 
-layout(rgba16f, set = 0, binding = 1) uniform image2D _TangentFlow;
+layout(rgba16f, set = 0, binding = 1) uniform image2D _FluxTangent;
 
-//layout(set = 0, binding = 1) uniform sampler2D _StateIn;
-//layout(rgba16f, set = 0, binding = 2) uniform image2D _StateOut;
+layout(set = 0, binding = 2) uniform sampler2D _EtatEntree;
+layout(rgba16f, set = 0, binding = 3) uniform image2D _EtatSortie;
  
 layout(push_constant, std430) uniform Params {
 	vec4 debug;
@@ -36,7 +37,7 @@ void SobelFilter() {
 	
 	vec2 nuv = vec2(uv)/vec2(raster_size);  
 
-	//Chaque thread charge son pixel dans la memoire et les bordures de 1
+	//Chaque thread char ge son pixel dans la memoire et les bordures de 1
 	
 	grille[ly + 1][lx + 1] = imageLoad(_ImageBase, (ivec2(gx, gy))).r;
 
@@ -89,7 +90,7 @@ void SobelFilter() {
 	}
 	
 	
-	imageStore(_ImageBase, uv, vec4(x,y,0.,0.)); } 
+	imageStore(_FluxTangent, uv, vec4(x,y,0.,0.)); } 
 
 [numthreads(8, 8, 1)]
 void SimulationStep() {
@@ -100,11 +101,42 @@ void SimulationStep() {
 	
 	vec2 nuv = vec2(uv) / vec2(size);
 	
-	vec2 vel = imageLoad(_TangentFlow,uv).xy;
+	vec2 vel = imageLoad(_FluxTangent,uv).xy;
 	vec2 prevPos = fract(nuv - vel * 0.01); 
-	//vec4 prevPosColor =texture(_StateIn, prevPos);
+	vec4 prevPosColor =texture(_EtatEntree, prevPos);
 	 
 
-	imageStore(_ImageBase, uv, prevPosColor);
+	imageStore(_EtatSortie, uv, prevPosColor);
+	
+}
+
+[numthreads(8, 8, 1)]
+void InitializeColor(){
+	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
+	ivec2 size = ivec2(raster_size);
+
+	if (uv.x >= size.x || uv.y >= size.y) return;
+	
+	vec2 nuv = vec2(uv) / vec2(size);
+	
+	vec4 col = imageLoad(_ImageBase,uv);
+	//col = vec4(1.,0.,0.,1.);
+	
+	imageStore(_EtatSortie,uv,col);
+	
+}
+[numthreads(8,8,1)]
+void CopyToMain(){
+	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
+	ivec2 size = ivec2(raster_size);
+
+	if (uv.x >= size.x || uv.y >= size.y) return;
+	
+	vec2 nuv = vec2(uv) / vec2(size); 
+	
+	vec4 simu = texture(_EtatEntree,nuv);
+	
+	imageStore(_ImageBase, uv, simu);
+
 	
 }
