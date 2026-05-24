@@ -1,0 +1,201 @@
+#kernel SobelFilter
+#kernel SimulationStep
+#kernel InitializeColor
+#kernel CopyToMain
+#kernel TangentPropagation
+
+//Memoire partagee des cellules
+shared float grille[10][10];   
+shared vec2 tan_grille[10][10];   
+
+
+layout(rgba16f, set = 0, binding = 0) uniform image2D _ImageBase;
+
+layout(rgba16f, set = 0, binding = 1) uniform image2D _FluxTangent;
+ 
+layout(set = 0, binding = 2) uniform sampler2D _EtatEntree;
+layout(rgba16f, set = 0, binding = 3) uniform image2D _EtatSortie;
+ 
+layout(push_constant, std430) uniform Params {
+	vec4 debug;
+	vec2 raster_size;
+	float a; 
+	float b;
+};
+
+vec2 rotate2D(vec2 p,float angle){
+	return vec2( 
+		p.x*cos(angle)-p.y*sin(angle),
+		p.x*sin(angle)+p.y*cos(angle) 
+	);
+}
+
+[numthreads(8, 8, 1)]
+void SobelFilter() {
+	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
+	int lx = int(gl_LocalInvocationID.x); 
+	int ly = int(gl_LocalInvocationID.y); 
+	int gx = uv.x; 
+	int gy = uv.y;
+	
+	vec2 nuv = vec2(uv)/vec2(raster_size);  
+
+	//Chaque thread char ge son pixel dans la memoire et les bordures de 1
+	
+	grille[ly + 1][lx + 1] = imageLoad(_ImageBase, (ivec2(gx, gy))).r;
+ 
+	// halo Gauche 
+	if (lx < 1)
+		grille[ly + 1][lx] = imageLoad(_ImageBase, (ivec2(gx - 1, gy))).r;
+
+	// halo Droit 
+	if (lx >= 7)
+		grille[ly + 1][lx + 2] = imageLoad(_ImageBase, (ivec2(gx + 1, gy))).r;
+
+	// halo Bas
+	if (ly < 1)
+		grille[ly][lx + 1] = imageLoad(_ImageBase, (ivec2(gx, gy - 1))).r;
+ 
+	// halo Haut
+	if (ly >= 7)
+		grille[ly + 2][lx + 1] = imageLoad(_ImageBase, (ivec2(gx, gy + 1))).r;
+
+	// Coins
+	if (lx < 1 && ly < 1)
+		grille[ly][lx] = imageLoad(_ImageBase, (ivec2(gx - 1, gy - 1))).r;
+
+	if (lx >= 7 && ly < 1)
+		grille[ly][lx + 2] = imageLoad(_ImageBase, (ivec2(gx + 1, gy - 1))).r;
+
+	if (lx < 1 && ly >= 7)
+		grille[ly + 2][lx] = imageLoad(_ImageBase, (ivec2(gx - 1, gy + 1))).r;
+
+	if (lx >= 7 && ly >= 7)
+		grille[ly + 2][lx + 2] = imageLoad(_ImageBase, (ivec2(gx + 1, gy + 1))).r;
+	
+	barrier();
+	
+	float x =
+	grille[ly+2][lx] - grille[ly+2][lx+2]+
+	grille[ly+1][lx]*2. - 2*grille[ly+1][lx+2]+ 
+	grille[ly][lx] - grille[ly][lx+2];
+	
+	float y =
+	grille[ly+2][lx] + 2* grille[ly+2][lx+1]+grille[ly+2][lx+2] 
+	- grille[ly][lx]- 2*grille[ly][lx+1] - grille[ly][lx+2];
+	
+	vec2 g = rotate2D(vec2(x,y),3.14);
+	
+	float mag = sqrt((x*x) + (y*y));
+	
+	if(mag<0.1){
+		g= vec2(0.,0.); 
+	}
+	
+	
+	imageStore(_FluxTangent, uv, vec4(x,y,0.,0.)); } 
+
+[numthreads(8, 8, 1)]
+void TangentPropagation() {
+	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
+	int lx = int(gl_LocalInvocationID.x); 
+	int ly = int(gl_LocalInvocationID.y); 
+	int gx = uv.x; 
+	int gy = uv.y;
+	
+	vec2 nuv = vec2(uv)/vec2(raster_size);  
+
+	//Chaque thread char ge son pixel dans la memoire et les bordures de 1
+	
+	tan_grille[ly + 1][lx + 1] = imageLoad(_FluxTangent, (ivec2(gx, gy))).xy;
+
+	// halo Gauche 
+	if (lx < 1)
+		tan_grille[ly + 1][lx] = imageLoad(_FluxTangent, (ivec2(gx - 1, gy))).xy;
+
+	// halo Droit 
+	if (lx >= 7)
+		tan_grille[ly + 1][lx + 2] = imageLoad(_FluxTangent, (ivec2(gx + 1, gy))).xy;
+
+	// halo Bas
+	if (ly < 1)
+		tan_grille[ly][lx + 1] = imageLoad(_FluxTangent, (ivec2(gx, gy - 1))).xy;
+ 
+	// halo Haut
+	if (ly >= 7)
+		tan_grille[ly + 2][lx + 1] = imageLoad(_FluxTangent, (ivec2(gx, gy + 1))).xy;
+
+	// Coins
+	if (lx < 1 && ly < 1)
+		tan_grille[ly][lx] = imageLoad(_FluxTangent, (ivec2(gx - 1, gy - 1))).xy;
+
+	if (lx >= 7 && ly < 1)
+		tan_grille[ly][lx + 2] = imageLoad(_FluxTangent, (ivec2(gx + 1, gy - 1))).xy;
+
+	if (lx < 1 && ly >= 7)
+		tan_grille[ly + 2][lx] = imageLoad(_FluxTangent, (ivec2(gx - 1, gy + 1))).xy;
+
+	if (lx >= 7 && ly >= 7)
+		tan_grille[ly + 2][lx + 2] = imageLoad(_FluxTangent, (ivec2(gx + 1, gy + 1))).xy;
+	
+	barrier();
+	
+	vec2 average =  
+	tan_grille[ly+2][lx] +tan_grille[ly+2][lx+1]+ tan_grille[ly+2][lx+2]+
+	tan_grille[ly+1][lx] +tan_grille[ly+1][lx+1]+tan_grille[ly+1][lx+2]+ 
+	tan_grille[ly][lx] + tan_grille[ly][lx+1]+tan_grille[ly][lx+2]; 
+	
+	//average= normalize(average);
+	
+	imageStore(_FluxTangent, uv, vec4(average.x,average.y,0.,0.));  
+} 
+
+
+[numthreads(8, 8, 1)]
+void SimulationStep() {
+	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
+	ivec2 size = ivec2(raster_size);
+
+	if (uv.x >= size.x || uv.y >= size.y) return;
+	
+	vec2 nuv = vec2(uv) / vec2(size);
+	
+	vec2 vel = imageLoad(_FluxTangent,uv).xy;
+	vec2 prevPos = fract(nuv - vel * 0.01); 
+	vec4 prevPosColor =texture(_EtatEntree, prevPos);
+	 
+
+	imageStore(_EtatSortie, uv, prevPosColor);
+	
+}
+
+[numthreads(8, 8, 1)]
+void InitializeColor(){
+	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
+	ivec2 size = ivec2(raster_size);
+
+	if (uv.x >= size.x || uv.y >= size.y) return;
+	
+	vec2 nuv = vec2(uv) / vec2(size);
+	
+	vec4 col = imageLoad(_ImageBase,uv);
+	//col = vec4(1.,0.,0.,1.);
+	
+	imageStore(_EtatSortie,uv,col);
+	
+}
+[numthreads(8,8,1)]
+void CopyToMain(){
+	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
+	ivec2 size = ivec2(raster_size);
+
+	if (uv.x >= size.x || uv.y >= size.y) return;
+	
+	vec2 nuv = vec2(uv) / vec2(size); 
+	
+	vec4 simu = texture(_EtatEntree,nuv);
+	
+	imageStore(_ImageBase, uv, simu);
+
+	
+}

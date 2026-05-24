@@ -2,29 +2,251 @@
 #kernel SimulationStep
 #kernel InitializeColor
 #kernel CopyToMain
+#kernel Blur
 
 //Memoire partagee des cellules
 shared float grille[10][10];   
+shared vec2 tan_grille[10][10];   
+
 
 layout(rgba16f, set = 0, binding = 0) uniform image2D _ImageBase;
 
 layout(rgba16f, set = 0, binding = 1) uniform image2D _FluxTangent;
-
+ 
 layout(set = 0, binding = 2) uniform sampler2D _EtatEntree;
 layout(rgba16f, set = 0, binding = 3) uniform image2D _EtatSortie;
- 
+layout(rgba16f, set = 0, binding = 4) uniform image2D _Blurred;
+
+
 layout(push_constant, std430) uniform Params {
 	vec4 debug;
 	vec2 raster_size;
-	float a; 
+	float time; 
 	float b;
 };
 
 vec2 rotate2D(vec2 p,float angle){
 	return vec2( 
 		p.x*cos(angle)-p.y*sin(angle),
-		p.x*sin(angle)+p.y*cos(angle)
+		p.x*sin(angle)+p.y*cos(angle) 
 	);
+}
+vec2 N12(float p) {
+	vec3 q = fract(vec3(p * 123.34, p * 456.78, p * 789.12));
+	q += dot(q, q.yzx + 34.56);
+	return fract(vec2(
+		(q.x + q.y) * q.z,
+		(q.y + q.z) * q.x
+	));
+}
+
+vec3 N13(float p) {
+	vec3 q = vec3(p * 123.34, p * 456.78, p * 789.12);
+	q = fract(q);
+	q += dot(q, q.yzx + 34.56);
+	return fract(vec3(
+		(q.x + q.y) * q.z,
+		(q.y + q.z) * q.x,
+		(q.z + q.x) * q.y
+	));
+}  
+
+vec3 N33(vec3 p) {
+	vec4 a = fract(p.xyzx * vec4(123.34, 232.45, 35.65, 154.78));
+	a += dot(a, a + 34.34);
+	return fract(vec3(a.x*a.y - 0.7, a.y*a.z + 0.1, a.z*a.w - 0.4));
+}
+
+vec3 grad( ivec3 z ){
+	// 3D to 1D
+	int n = z.x + z.y*11111 + z.z*333667;
+
+	// Hugo Elias hash
+	n = (n<<13)^n;
+	n = (n*(n*n*15731+789221)+1376312589)>>16;
+
+	// Perlin-style: the 12 midpoints of a cubes edges
+	// (±1,±1, 0), (±1, 0,±1), ( 0,±1,±1)
+	n &= 11;  // 12 gradients, wrap at 12 (use 11 as mask then clamp last)
+	if (n > 11) n -= 12;
+
+	const vec3 grads[12] = vec3[12](
+		vec3( 1.0,  1.0,  0.0),
+		vec3(-1.0,  1.0,  0.0),
+		vec3( 1.0, -1.0,  0.0),
+		vec3(-1.0, -1.0,  0.0),
+		vec3( 1.0,  0.0,  1.0),
+		vec3(-1.0,  0.0,  1.0),
+		vec3( 1.0,  0.0, -1.0),
+		vec3(-1.0,  0.0, -1.0),
+		vec3( 0.0,  1.0,  1.0),
+		vec3( 0.0, -1.0,  1.0),
+		vec3( 0.0,  1.0, -1.0),
+		vec3( 0.0, -1.0, -1.0)
+	);
+	return grads[n];
+}
+vec2 grad(ivec2 p) {
+	// Hash the integer coords to a unit-ish gradient direction
+	int n = p.x + p.y * 57;
+	n = (n << 13) ^ n;
+	n = n * (n * n * 15731 + 789221) + 1376312589;
+	float angle = float(n & 0x7fffffff) / 1073741824.0 * 3.14159265;
+	return vec2(cos(angle), sin(angle));
+}
+
+ivec2 LoopCoord(ivec2 coord) {
+	return ivec2(mod(((mod(coord,raster_size)) + raster_size), raster_size));
+} 
+
+vec4 PerlinNoiseGradient(vec3 pos,float scale ){
+	
+	ivec3 flpos = ivec3(floor(pos*scale));
+	vec3 frpos = fract(pos*scale);
+	vec3 s = frpos*frpos*(3.-2.0*frpos);
+	
+	vec3 g000 =grad(flpos);
+	vec3 g010 =grad(flpos+ivec3(0,1,0));
+	vec3 g110 =grad(flpos+ivec3(1,1,0));
+	vec3 g100 =grad(flpos+ivec3(1,0,0));
+	vec3 g001 =grad(flpos+ivec3(0,0,1));
+	vec3 g011 =grad(flpos+ivec3(0,1,1));
+	vec3 g111 =grad(flpos+ivec3(1,1,1));
+	vec3 g101 =grad(flpos+ivec3(1,0,1));
+	
+	
+	float c000 = dot(g000,frpos);;
+	float c010 = dot(g010,frpos-vec3(0.,1.,0.));
+	float c110 = dot(g110,frpos-vec3(1.,1.,0.));
+	float c100 = dot(g100,frpos-vec3(1.,0.,0.));
+   
+	
+	float c001 = dot(g001,frpos-vec3(0.,0.,1.));;
+	float c011 = dot(g011,frpos-vec3(0.,1.,1.));
+	float c111 = dot(g111,frpos-vec3(1.,1.,1.));
+	float c101 = dot(g101,frpos-vec3(1.,0.,1.));
+	
+	
+	
+	float c0y0 = mix(c000,c010,s.y);
+	float c1y0 = mix(c100,c110,s.y);
+	
+	float c0y1 = mix(c001,c011,s.y);
+	float c1y1 = mix(c101,c111,s.y);
+	
+	
+	float cxy0 = mix(c0y0,c1y0,s.x);
+	float cxy1 = mix(c0y1,c1y1,s.x);
+	
+	float perlin = mix(cxy0,cxy1,s.z);
+	
+	
+	vec3 w000 = (1.-s.x)*(1.-s.y)*(1.-s.z)*g000;
+	vec3 w010 = (1.-s.x)*s.y*(1.-s.z)*g010;
+	vec3 w110 = s.x*s.y*(1.-s.z)*g110;
+	vec3 w100 = s.x*(1.-s.y)*(1.-s.z)*g100;
+	vec3 w001 = (1.-s.x)*(1.-s.y)*s.z*g001;
+	vec3 w011 = (1.-s.x)*s.y*s.z*g011;
+	vec3 w111 = s.x*s.y*s.z*g111;
+	vec3 w101 = s.x*(1.-s.y)*s.z*g101;
+	
+	vec3 smoothstepDerivative = 6.*frpos-6.*frpos*frpos;
+	
+	float ddx = (mix(c1y0,c1y1,s.z)-mix(c0y0,c0y1,s.z));
+	
+	float ddy = mix(mix( c010 ,c110,s.x),mix(c011,c111,s.x),s.z)-mix(mix(c000,c100,s.x),mix(c001,c101,s.x),s.z);
+	
+	float ddz = cxy1-cxy0;
+	
+	vec3 d = smoothstepDerivative*vec3(ddx,ddy,ddz)+w000+w001+w010+w011+w100+w101+w110+w111;
+	
+	return vec4((perlin+1.)/2.,d);
+ 
+}  
+vec3 PerlinNoiseGradient(vec2 pos, float scale) { 
+	
+	ivec2 flpos = ivec2(floor(pos * scale));
+	vec2 frpos = fract(pos * scale);
+	vec2 s = frpos * frpos * (3. - 2.0 * frpos);
+
+	vec2 g00 = grad(flpos);
+	vec2 g10 = grad(flpos + ivec2(1, 0));
+	vec2 g01 = grad(flpos + ivec2(0, 1));
+	vec2 g11 = grad(flpos + ivec2(1, 1));
+
+	float c00 = dot(g00, frpos);
+	float c10 = dot(g10, frpos - vec2(1., 0.));
+	float c01 = dot(g01, frpos - vec2(0., 1.));
+	float c11 = dot(g11, frpos - vec2(1., 1.));
+
+	float cx0 = mix(c00, c10, s.x);
+	float cx1 = mix(c01, c11, s.x);
+
+	float perlin = mix(cx0, cx1, s.y);
+
+	vec2 w00 = (1. - s.x) * (1. - s.y) * g00;
+	vec2 w10 =        s.x  * (1. - s.y) * g10;
+	vec2 w01 = (1. - s.x) *        s.y  * g01;
+	vec2 w11 =        s.x  *        s.y  * g11;
+
+	
+	vec2 smoothstepDerivative = 6. * frpos - 6. * frpos * frpos;
+
+	float ddx = mix(c10, c11, s.y) - mix(c00, c01, s.y);
+	float ddy = cx1 - cx0;
+
+	vec2 d = smoothstepDerivative * vec2(ddx, ddy) + w00 + w10 + w01 + w11;
+
+	return vec3((perlin + 1.) / 2., d);
+} 
+mat3 randomRotation(float seed) {
+	vec2 r1 = normalize(vec2(
+		fract(seed * 127.1 + 311.7) * 2.0 - 1.0,
+		fract(seed * 269.5 + 183.3) * 2.0 - 1.0
+	));
+	vec2 r2 = normalize(vec2(
+		fract(seed * 419.2 + 933.1) * 2.0 - 1.0,
+		fract(seed * 371.9 + 246.1) * 2.0 - 1.0
+	));
+
+	mat3 m1 = mat3(
+		vec3( r1.x, r1.y, 0.0),
+		vec3(-r1.y, r1.x, 0.0),
+		vec3(  0.0,  0.0, 1.0)
+	);
+	mat3 m2 = mat3(
+		vec3( r2.x, 0.0, r2.y),
+		vec3(  0.0, 1.0,  0.0),
+		vec3(-r2.y, 0.0, r2.x)
+	);
+
+	return m2 * m1;
+}
+vec3 fbm( vec3 p)
+{    
+	//Modifiables
+	float H = 0.5;
+	float fac= 2.;
+	
+	float G = exp2(-H);
+	float f = 1.0;
+	float a = 1.0;
+	vec3 t = vec3(0.0);
+	for( int i=0; i<5; i++ )
+	{
+		p*=randomRotation(float(i));
+		t += a*PerlinNoiseGradient(p,2.*f).yzw;
+		f *= fac;
+		a *= G;
+	}
+	return t;
+}
+vec2 CurlNoise(vec2 p){
+	vec2 d = normalize(p-vec2(0.5));
+	
+	vec2 dir = fbm(vec3(p,1.*0.2)).xy;
+	return rotate2D(dir, 3.14159/2.); 
+ 	
 }
 
 [numthreads(8, 8, 1)]
@@ -40,7 +262,7 @@ void SobelFilter() {
 	//Chaque thread char ge son pixel dans la memoire et les bordures de 1
 	
 	grille[ly + 1][lx + 1] = imageLoad(_ImageBase, (ivec2(gx, gy))).r;
-
+ 
 	// halo Gauche 
 	if (lx < 1)
 		grille[ly + 1][lx] = imageLoad(_ImageBase, (ivec2(gx - 1, gy))).r;
@@ -81,7 +303,7 @@ void SobelFilter() {
 	grille[ly+2][lx] + 2* grille[ly+2][lx+1]+grille[ly+2][lx+2] 
 	- grille[ly][lx]- 2*grille[ly][lx+1] - grille[ly][lx+2];
 	
-	vec2 g = rotate2D(vec2(x,y),3.14);
+	vec2 g = rotate2D(vec2(x,y),3.14159/2.);
 	
 	float mag = sqrt((x*x) + (y*y));
 	
@@ -92,16 +314,20 @@ void SobelFilter() {
 	
 	imageStore(_FluxTangent, uv, vec4(x,y,0.,0.)); } 
 
+
+
 [numthreads(8, 8, 1)]
 void SimulationStep() {
 	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
 	ivec2 size = ivec2(raster_size);
 
 	if (uv.x >= size.x || uv.y >= size.y) return;
-	
-	vec2 nuv = vec2(uv) / vec2(size);
+	 
+	vec2 nuv = vec2(uv) / vec2(size); 
 	
 	vec2 vel = imageLoad(_FluxTangent,uv).xy;
+	 
+	vel = mix(CurlNoise(nuv*10.)*0.05,vel,length(vel));
 	vec2 prevPos = fract(nuv - vel * 0.01); 
 	vec4 prevPosColor =texture(_EtatEntree, prevPos);
 	 
@@ -139,4 +365,61 @@ void CopyToMain(){
 	imageStore(_ImageBase, uv, simu);
 
 	
+}
+
+[numthreads(8, 8, 1)]
+void Blur() { 
+	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
+
+	int lx = int(gl_LocalInvocationID.x); // 0..7
+	int ly = int(gl_LocalInvocationID.y); // 0..7
+	int gx = uv.x;
+	int gy = uv.y;
+
+	grille[ly + 2][lx + 2] = imageLoad(_ImageBase, LoopCoord(ivec2(gx, gy))).r;
+
+	// Left halo
+	if (lx < 2)
+		grille[ly + 2][lx] = imageLoad(_ImageBase, LoopCoord(ivec2(gx - 2, gy))).r;
+
+	// Right halo
+	if (lx >= 6)
+		grille[ly + 2][lx + 4] = imageLoad(_ImageBase, LoopCoord(ivec2(gx + 2, gy))).r;
+
+	// Top halo
+	if (ly < 2)
+		grille[ly][lx + 2] = imageLoad(_ImageBase, LoopCoord(ivec2(gx, gy - 2))).r;
+
+	// Bottom halo
+	if (ly >= 6)
+		grille[ly + 4][lx + 2] = imageLoad(_ImageBase, LoopCoord(ivec2(gx, gy + 2))).r;
+
+	// Corners
+	if (lx < 2 && ly < 2)
+		grille[ly][lx] = imageLoad(_ImageBase, LoopCoord(ivec2(gx - 2, gy - 2))).r;
+
+	if (lx >= 6 && ly < 2)
+		grille[ly][lx + 4] = imageLoad(_ImageBase, LoopCoord(ivec2(gx + 2, gy - 2))).r;
+
+	if (lx < 2 && ly >= 6)
+		grille[ly + 4][lx] = imageLoad(_ImageBase, LoopCoord(ivec2(gx - 2, gy + 2))).r;
+
+	if (lx >= 6 && ly >= 6)
+		grille[ly + 4][lx + 4] = imageLoad(_ImageBase, LoopCoord(ivec2(gx + 2, gy + 2))).r;
+	
+	barrier();
+	
+	int x = lx + 2; 
+	int y = ly + 2;
+	
+	 
+	float result =
+	grille[y-2][x-2] * 0.00390 + grille[y-2][x-1] * 0.01563 + grille[y-2][x] * 0.02344 + grille[y-2][x+1] * 0.01563 + grille[y-2][x+2] * 0.00390 +
+	grille[y-1][x-2] * 0.01563 + grille[y-1][x-1] * 0.06250 + grille[y-1][x] * 0.09375 + grille[y-1][x+1] * 0.06250 + grille[y-1][x+2] * 0.01563 +
+	grille[y  ][x-2] * 0.02344 + grille[y  ][x-1] * 0.09375 + grille[y  ][x] * 0.14063 + grille[y  ][x+1] * 0.09375 + grille[y  ][x+2] * 0.02344 +
+	grille[y+1][x-2] * 0.01563 + grille[y+1][x-1] * 0.06250 + grille[y+1][x] * 0.09375 + grille[y+1][x+1] * 0.06250 + grille[y+1][x+2] * 0.01563 +
+	grille[y+2][x-2] * 0.00390 + grille[y+2][x-1] * 0.01563 + grille[y+2][x] * 0.02344 + grille[y+2][x+1] * 0.01563 + grille[y+2][x+2] * 0.00390;
+	
+	imageStore(_Blurred, uv, vec4(result));
+	 
 }

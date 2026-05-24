@@ -1,6 +1,6 @@
 @tool
 extends CompositorEffect
-class_name TangentFluid
+class_name DataMoshing
 @export var Debug = Vector4(0.,0.,0.,0.)
 
 var rd : RenderingDevice
@@ -12,9 +12,6 @@ var sampler_rid : RID
 #On crée deux buffers dans le format compatible avec RenderingDevice
 var texture_a: RID  
 var texture_b: RID
-
-var blurred_texture: RID  
-
 #On cree deux RDUniforms qu'on pourra swapper dans le sampler
 var u_a : RDUniform
 var u_b : RDUniform
@@ -32,7 +29,7 @@ func _init():
 	rd = RenderingServer.get_rendering_device()
 
 	# To make use of an existing ACompute shader we use its filename to access it, in this case, the example compute shader file is 'exposure_example.acompute'
-	tangent_fluid_compute = ACompute.new('tangent_fluid')
+	tangent_fluid_compute = ACompute.new('data_moshing')
 	
 	_initialisation_sampler()
 	
@@ -44,7 +41,6 @@ func _notification(what):
 		tangent_fluid_compute.free()
 		if texture_a.is_valid(): rd.free_rid(texture_a)
 		if texture_b.is_valid(): rd.free_rid(texture_b)
-		if blurred_texture.is_valid(): rd.free_rid(blurred_texture)
 		if tangent_field.is_valid(): rd.free_rid(tangent_field)
 		if sampler_rid.is_valid(): rd.free_rid(sampler_rid)
 		
@@ -80,17 +76,16 @@ func _render_callback(p_effect_callback_type, p_render_data):
 			y_groups = (size.y - 1) / 8 + 1
 			texture_a = _resize_tex(size,texture_a)
 			texture_b = _resize_tex(size,texture_b)
-			blurred_texture = _resize_tex(size,blurred_texture)
 			tangent_field = _resize_tex(size,tangent_field)
 			maj_sampler_uniforms()
 			_remplissage_initial(size,input_image)
 			prev_size = size
 		
-		tangent_fluid_compute.dispatch(4,x_groups,y_groups,1) 
+		
 		tangent_fluid_compute.dispatch(0,x_groups,y_groups,1)
 		
-		
-		
+		#for i in range (10):
+			#tangent_fluid_compute.dispatch(4,x_groups,y_groups,1)
 		tangent_fluid_compute.dispatch(1,x_groups,y_groups,1)
 		_swap_buffers()
 		if(maj_couleur):
@@ -122,14 +117,10 @@ func _resize_tex(size,old_rid):
 func _remplissage_initial(size,input_image):
 	#premier swap pour initialiser
 	_swap_buffers()
-	var push_constant : PackedFloat32Array = PackedFloat32Array([Debug.x, Debug.y, Debug.z,Debug.w,size.x,size.y,Time.get_ticks_msec() / 1000.0,0.])
+	var push_constant : PackedFloat32Array = PackedFloat32Array([Debug.x, Debug.y, Debug.z,Debug.w,size.x,size.y,0.,0.])
 	tangent_fluid_compute.set_push_constant(push_constant.to_byte_array())
-	
-	
 	tangent_fluid_compute.set_texture(0, input_image)
 	tangent_fluid_compute.set_texture(1, tangent_field)
-	tangent_fluid_compute.set_texture(4, blurred_texture)
-	#initialisation image
 	tangent_fluid_compute.dispatch(2,x_groups,y_groups,1)
 	_swap_buffers()
 	

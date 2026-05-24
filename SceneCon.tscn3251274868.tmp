@@ -33,7 +33,7 @@ metadata/_custom_type_script = "uid://cv4yw251oxpyr"
 [sub_resource type="CompositorEffect" id="CompositorEffect_qjuyx"]
 resource_local_to_scene = false
 resource_name = ""
-enabled = true
+enabled = false
 effect_callback_type = 4
 needs_motion_vectors = false
 needs_normal_roughness = false

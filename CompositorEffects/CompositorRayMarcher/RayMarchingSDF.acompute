@@ -278,48 +278,36 @@ float opSmoothUnion( float a, float b, float k )
 }
 
 
-float fbmSpheres( vec3 p)
-{    
-	//Modifiables
-	float H = 0.5;
-	float fac= 1.1;
-	
-	float G = exp2(-H);
-	float f = 2.;
-	float a = 1.0;
-	float t = 100000.0;
-	
 
-	
-	float rad = _Debug.x;
-	
-	for( int i=0; i<3; i++ )
-	{
-		//p*=randomRotation(float(i));
-		t = min(t,Voronoi(p+N33(ivec3(i))).x-rad*a); 
-		f *= fac;  
-		a *= G;
-	}
-	return t;
-}
 
 
 
 float map(vec3 p)
 {
-	vec3 perl = PerlinNoiseGradient(p,10.).yzw;
-	p+=_Debug.y*perl;
-	float voronoiSDF= fbmSpheres(p).x;
 	
-	float base = voronoiSDF;
-	return base;
+	float cam_length = length(p-CAMERA_POSITION_WORLD.xyz);
+	float sphere = smoothstep(0.,1.,cam_length);
+	
+	float cell = N31(floor(p.xyy));
+	
+	float cercle = length(fract(p)-vec3(0.5))-0.3*sphere;
+	
+	p.x += cos(p.z)*cell*0.5;
+	p.y +=sin(p.z)*cell*0.5;
+	
+	p.xy = fract(p.xy)-0.5;
+	
+	float tube = length(p.xy)-0.1;
+	
+	
+	return cercle;  
 }
 
 float trace( vec3 ro, vec3 rd){
 	vec3 p = ro;
 	float dis =0.;
 	
-	for (int i = 0; i<40; i++){
+	for (int i = 0; i<128; i++){
 		float d = map(p);
 		dis+=d;
 		if(d<0.001){
@@ -387,7 +375,6 @@ void RayMarching() {
 		
 		
 		
-		ivec2 texCoord = ivec2(mod((p).xz*_Debug.w,vec2(raster_size.x)));
 		
 		 
 		col =vec4(n,1.);  
